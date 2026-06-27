@@ -1,8 +1,8 @@
 package com.flux.launcher.data
 
 import android.content.Context
-import android.content.Intent
 import android.content.pm.LauncherApps
+import android.graphics.drawable.Drawable
 import android.os.Process
 import androidx.compose.runtime.mutableStateListOf
 
@@ -31,5 +31,5 @@ class AppProvider(private val context: Context) {
 data class AppInfo(
     val label: String,
     val packageName: String,
-    val icon: android.graphics.drawable.Drawable
+    val icon: Drawable
 )
