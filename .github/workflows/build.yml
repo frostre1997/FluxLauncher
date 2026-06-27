@@ -17,14 +17,40 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+    - name: List project structure
+      run: |
+        echo "Current directory:"
+        pwd
+        echo "Files in root:"
+        ls -la
+        echo "Searching for gradlew:"
+        find . -name "gradlew" -type f 2>/dev/null || echo "gradlew not found"
+
+    - name: Setup Gradle
+      run: |
+        if [ -f "gradlew" ]; then
+          chmod +x gradlew
+        elif [ -f "android/gradlew" ]; then
+          chmod +x android/gradlew
+        else
+          echo "gradlew not found, using system gradle"
+        fi
 
     - name: Build APK
-      run: ./gradlew assembleDebug
+      run: |
+        if [ -f "gradlew" ]; then
+          ./gradlew assembleDebug
+        elif [ -f "android/gradlew" ]; then
+          cd android && ./gradlew assembleDebug
+        else
+          gradle assembleDebug
+        fi
 
-    - name: Upload APK
+    - name: Find and Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: flux-launcher-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: |
+          app/build/outputs/apk/debug/*.apk
+          android/app/build/outputs/apk/debug/*.apk
+          **/build/outputs/apk/debug/*.apk
