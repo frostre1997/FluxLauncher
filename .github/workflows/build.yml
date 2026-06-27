@@ -17,62 +17,79 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 🔍 Trova la radice del progetto Gradle
-    - name: Find Gradle project root
-      id: find_gradle
+    # 🔍 Rileva il tipo di progetto
+    - name: Detect project type
+      id: detect
       run: |
-        # Cerca settings.gradle o build.gradle in qualsiasi sottocartella
-        GRADLE_DIR=$(find . -type f \( -name "settings.gradle*" -o -name "build.gradle*" \) -exec dirname {} \; | sort -u | head -1)
+        echo "=== Struttura root ==="
+        ls -la
+        echo "=== Sottocartelle principali ==="
+        find . -maxdepth 2 -type d
+        echo "=== Cerca settings.gradle ==="
+        find . -name "settings.gradle*" -type f
+        echo "=== Cerca pubspec.yaml ==="
+        find . -name "pubspec.yaml" -type f
         
-        if [ -z "$GRADLE_DIR" ]; then
-          echo "❌ Nessun file Gradle trovato. Verifica se è un progetto Flutter."
-          # Cerca pubspec.yaml per Flutter
-          if [ -f "pubspec.yaml" ] || [ -f "android/pubspec.yaml" ]; then
-            echo "FLUTTER=true" >> $GITHUB_ENV
-            echo "✅ Progetto Flutter rilevato."
-          else
-            echo "❌ Progetto non riconosciuto. Mostro la struttura:"
-            find . -maxdepth 2 -type d
-            exit 1
-          fi
+        if [ -f "pubspec.yaml" ]; then
+          echo "type=flutter" >> $GITHUB_OUTPUT
+          echo "✅ Progetto Flutter"
+        elif [ -f "android/settings.gradle" ] || [ -f "app/settings.gradle" ]; then
+          echo "type=gradle_android" >> $GITHUB_OUTPUT
+          echo "✅ Progetto Android con Gradle in sottocartella"
         else
-          echo "PROJECT_DIR=$GRADLE_DIR" >> $GITHUB_ENV
-          echo "✅ Progetto Gradle trovato in: $GRADLE_DIR"
+          echo "type=unknown" >> $GITHUB_OUTPUT
+          echo "❌ Tipo non riconosciuto, mostro struttura completa:"
+          find . -type f -name "*.gradle*" -o -name "*.yaml" -o -name "*.xml" | head -20
         fi
 
-    # 🛠️ Se è Flutter, usa flutter-action
+    # 🛠️ Build per Flutter
     - name: Setup Flutter
-      if: env.FLUTTER == 'true'
+      if: steps.detect.outputs.type == 'flutter'
       uses: subosito/flutter-action@v2
       with:
         flutter-version: '3.x'
 
-    - name: Build APK (Flutter)
-      if: env.FLUTTER == 'true'
+    - name: Build Flutter APK
+      if: steps.detect.outputs.type == 'flutter'
       run: |
-        cd android  # se il progetto Flutter ha android/ con build.gradle
+        flutter pub get
         flutter build apk --debug
 
-    # 🛠️ Se è Gradle, costruisci
-    - name: Grant execute permission
-      if: env.PROJECT_DIR != ''
+    # 🛠️ Build per Android (con Gradle in sottocartella)
+    - name: Grant execute permission (Android)
+      if: steps.detect.outputs.type == 'gradle_android'
       run: |
-        chmod +x ${{ env.PROJECT_DIR }}/gradlew
+        # Rendi eseguibile gradlew nella root (se esiste)
+        chmod +x gradlew || true
+        # Se c'è un gradlew in android/
+        chmod +x android/gradlew 2>/dev/null || true
 
-    - name: Build APK (Gradle)
-      if: env.PROJECT_DIR != ''
+    - name: Build Android APK
+      if: steps.detect.outputs.type == 'gradle_android'
       run: |
-        cd ${{ env.PROJECT_DIR }}
-        ./gradlew assembleDebug
+        # Prova prima a buildare da android/
+        if [ -d "android" ] && [ -f "android/settings.gradle" ]; then
+          cd android
+          ../gradlew assembleDebug
+        else
+          # Se settings.gradle è in un'altra sottocartella, la trovo
+          GRADLE_DIR=$(find . -name "settings.gradle*" -exec dirname {} \; | head -1)
+          if [ -n "$GRADLE_DIR" ]; then
+            cd $GRADLE_DIR
+            ./gradlew assembleDebug
+          else
+            echo "❌ Impossibile trovare la directory del progetto Gradle"
+            exit 1
+          fi
+        fi
 
-    # 📦 Upload APK (cerca in tutte le possibili posizioni)
+    # 📦 Upload APK (cerca ovunque)
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: flux-launcher-apk
         path: |
+          build/app/outputs/flutter-apk/*.apk
           app/build/outputs/apk/debug/*.apk
           android/app/build/outputs/apk/debug/*.apk
-          ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           **/build/outputs/apk/debug/*.apk
-          build/app/outputs/flutter-apk/*.apk
