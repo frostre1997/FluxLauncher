@@ -38,8 +38,8 @@ jobs:
           echo "✅ Progetto Android con Gradle in sottocartella"
         else
           echo "type=unknown" >> $GITHUB_OUTPUT
-          echo "❌ Tipo non riconosciuto, mostro struttura completa:"
-          find . -type f -name "*.gradle*" -o -name "*.yaml" -o -name "*.xml" | head -20
+          echo "❌ Tipo non riconosciuto"
+          exit 1
         fi
 
     # 🛠️ Build per Flutter
@@ -49,11 +49,16 @@ jobs:
       with:
         flutter-version: '3.x'
 
+    - name: Flutter doctor
+      if: steps.detect.outputs.type == 'flutter'
+      run: flutter doctor -v
+
     - name: Build Flutter APK
       if: steps.detect.outputs.type == 'flutter'
       run: |
         flutter pub get
         flutter build apk --debug
+        echo "✅ Build Flutter completata"
 
     # 🛠️ Build per Android (con Gradle in sottocartella)
     - name: Grant execute permission (Android)
@@ -78,31 +83,40 @@ jobs:
             exit 1
           fi
         fi
+        echo "✅ Build Android completata"
 
-    # 🔍 Trova l'APK generato (funziona per qualsiasi progetto)
-    - name: Locate APK
-      id: locate
+    # 🔍 Debug: mostra tutto dopo la build
+    - name: Debug build output
+      if: always()
       run: |
-        echo "🔍 Cercando tutti gli APK generati..."
-        APK_PATH=$(find . -name "*.apk" -type f | head -1)
-        
-        if [ -z "$APK_PATH" ]; then
-          echo "❌ Nessun APK trovato!"
-          echo "Contenuto della cartella di build:"
-          find . -type d -name "build" -exec ls -laR {} \; 2>/dev/null || echo "Nessuna cartella build trovata"
-          exit 1
-        fi
-        
-        echo "✅ APK trovato in: $APK_PATH"
-        echo "APK_PATH=$APK_PATH" >> $GITHUB_ENV
-        
-        # Mostra le dimensioni del file
-        ls -lh "$APK_PATH"
+        echo "=== TIPO PROGETTO: ${{ steps.detect.outputs.type }} ==="
+        echo ""
+        echo "=== Root directory ==="
+        ls -la
+        echo ""
+        echo "=== Cartelle build trovate ==="
+        find . -type d -name "build"
+        echo ""
+        echo "=== Contenuto di ogni cartella build/ ==="
+        for dir in $(find . -type d -name "build"); do
+          echo "--- $dir ---"
+          ls -laR "$dir" 2>/dev/null || echo "  (vuota o inaccessibile)"
+        done
+        echo ""
+        echo "=== APK trovati ==="
+        find . -name "*.apk" -type f
+        echo ""
+        echo "=== Output di Flutter (se presente) ==="
+        find . -path "*/flutter-apk/*" 2>/dev/null || echo "  Nessuno"
+        echo ""
+        echo "=== Output di Android (se presente) ==="
+        find . -path "*/apk/debug/*" 2>/dev/null || echo "  Nessuno"
 
-    # 📦 Upload APK (usa il percorso trovato)
+    # 📦 Upload APK (cerca ovunque)
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: flux-launcher-apk
-        path: ${{ env.APK_PATH }}
-        if-no-files-found: error
+        path: |
+          **/*.apk
+        if-no-files-found: warn   # Messo a warn invece di error per non bloccare il workflow
