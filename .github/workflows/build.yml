@@ -17,34 +17,92 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    # 🔍 Rileva il tipo di progetto
+    - name: Detect project type
+      id: detect
+      run: |
+        echo "=== Struttura root ==="
+        ls -la
+        echo "=== Sottocartelle principali ==="
+        find . -maxdepth 2 -type d
+        echo "=== Cerca settings.gradle ==="
+        find . -name "settings.gradle*" -type f
+        echo "=== Cerca pubspec.yaml ==="
+        find . -name "pubspec.yaml" -type f
+        
+        if [ -f "pubspec.yaml" ]; then
+          echo "type=flutter" >> $GITHUB_OUTPUT
+          echo "✅ Progetto Flutter"
+        elif [ -f "android/settings.gradle" ] || [ -f "app/settings.gradle" ]; then
+          echo "type=gradle_android" >> $GITHUB_OUTPUT
+          echo "✅ Progetto Android con Gradle in sottocartella"
+        else
+          echo "type=unknown" >> $GITHUB_OUTPUT
+          echo "❌ Tipo non riconosciuto, mostro struttura completa:"
+          find . -type f -name "*.gradle*" -o -name "*.yaml" -o -name "*.xml" | head -20
+        fi
+
+    # 🛠️ Build per Flutter
     - name: Setup Flutter
+      if: steps.detect.outputs.type == 'flutter'
       uses: subosito/flutter-action@v2
       with:
         flutter-version: '3.x'
 
-    - name: Build APK
+    - name: Build Flutter APK
+      if: steps.detect.outputs.type == 'flutter'
       run: |
         flutter pub get
         flutter build apk --debug
 
-    # 🔍 Step di debug: trova l'APK generato
+    # 🛠️ Build per Android (con Gradle in sottocartella)
+    - name: Grant execute permission (Android)
+      if: steps.detect.outputs.type == 'gradle_android'
+      run: |
+        chmod +x gradlew || true
+        chmod +x android/gradlew 2>/dev/null || true
+
+    - name: Build Android APK
+      if: steps.detect.outputs.type == 'gradle_android'
+      run: |
+        if [ -d "android" ] && [ -f "android/settings.gradle" ]; then
+          cd android
+          ../gradlew assembleDebug
+        else
+          GRADLE_DIR=$(find . -name "settings.gradle*" -exec dirname {} \; | head -1)
+          if [ -n "$GRADLE_DIR" ]; then
+            cd $GRADLE_DIR
+            ./gradlew assembleDebug
+          else
+            echo "❌ Impossibile trovare la directory del progetto Gradle"
+            exit 1
+          fi
+        fi
+
+    # 🔍 Trova l'APK generato (funziona per qualsiasi progetto)
     - name: Locate APK
       id: locate
       run: |
-        echo "=== Cercando tutti gli APK ==="
-        find . -name "*.apk" -type f
+        echo "🔍 Cercando tutti gli APK generati..."
         APK_PATH=$(find . -name "*.apk" -type f | head -1)
+        
         if [ -z "$APK_PATH" ]; then
           echo "❌ Nessun APK trovato!"
+          echo "Contenuto della cartella di build:"
+          find . -type d -name "build" -exec ls -laR {} \; 2>/dev/null || echo "Nessuna cartella build trovata"
           exit 1
         fi
-        echo "APK_PATH=$APK_PATH" >> $GITHUB_ENV
+        
         echo "✅ APK trovato in: $APK_PATH"
+        echo "APK_PATH=$APK_PATH" >> $GITHUB_ENV
+        
+        # Mostra le dimensioni del file
+        ls -lh "$APK_PATH"
 
-    # 📦 Upload dell'APK (usa il percorso trovato)
+    # 📦 Upload APK (usa il percorso trovato)
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: flux-launcher-apk
         path: ${{ env.APK_PATH }}
-        if-no-files-found: error   # fallisce se non trova l'APK
+        if-no-files-found: error
