@@ -17,40 +17,31 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: List project structure
+    - name: Find project root
+      id: find_root
       run: |
-        echo "Current directory:"
-        pwd
-        echo "Files in root:"
-        ls -la
-        echo "Searching for gradlew:"
-        find . -name "gradlew" -type f 2>/dev/null || echo "gradlew not found"
-
-    - name: Setup Gradle
-      run: |
-        if [ -f "gradlew" ]; then
-          chmod +x gradlew
-        elif [ -f "android/gradlew" ]; then
-          chmod +x android/gradlew
-        else
-          echo "gradlew not found, using system gradle"
+        # Cerca la directory che contiene settings.gradle
+        PROJ_DIR=$(find . -name "settings.gradle*" -type f -exec dirname {} \; | head -1)
+        if [ -z "$PROJ_DIR" ]; then
+          echo "No Gradle project found!"
+          exit 1
         fi
+        echo "PROJECT_DIR=$PROJ_DIR" >> $GITHUB_ENV
+        echo "Found project in: $PROJ_DIR"
+
+    - name: Grant execute permission
+      run: |
+        chmod +x ${{ env.PROJECT_DIR }}/gradlew || chmod +x gradlew
 
     - name: Build APK
       run: |
-        if [ -f "gradlew" ]; then
-          ./gradlew assembleDebug
-        elif [ -f "android/gradlew" ]; then
-          cd android && ./gradlew assembleDebug
-        else
-          gradle assembleDebug
-        fi
+        cd ${{ env.PROJECT_DIR }}
+        ./gradlew assembleDebug
 
-    - name: Find and Upload APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: flux-launcher-apk
         path: |
-          app/build/outputs/apk/debug/*.apk
-          android/app/build/outputs/apk/debug/*.apk
+          ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           **/build/outputs/apk/debug/*.apk
