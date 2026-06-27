@@ -17,31 +17,62 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Find project root
-      id: find_root
+    # 🔍 Trova la radice del progetto Gradle
+    - name: Find Gradle project root
+      id: find_gradle
       run: |
-        # Cerca la directory che contiene settings.gradle
-        PROJ_DIR=$(find . -name "settings.gradle*" -type f -exec dirname {} \; | head -1)
-        if [ -z "$PROJ_DIR" ]; then
-          echo "No Gradle project found!"
-          exit 1
+        # Cerca settings.gradle o build.gradle in qualsiasi sottocartella
+        GRADLE_DIR=$(find . -type f \( -name "settings.gradle*" -o -name "build.gradle*" \) -exec dirname {} \; | sort -u | head -1)
+        
+        if [ -z "$GRADLE_DIR" ]; then
+          echo "❌ Nessun file Gradle trovato. Verifica se è un progetto Flutter."
+          # Cerca pubspec.yaml per Flutter
+          if [ -f "pubspec.yaml" ] || [ -f "android/pubspec.yaml" ]; then
+            echo "FLUTTER=true" >> $GITHUB_ENV
+            echo "✅ Progetto Flutter rilevato."
+          else
+            echo "❌ Progetto non riconosciuto. Mostro la struttura:"
+            find . -maxdepth 2 -type d
+            exit 1
+          fi
+        else
+          echo "PROJECT_DIR=$GRADLE_DIR" >> $GITHUB_ENV
+          echo "✅ Progetto Gradle trovato in: $GRADLE_DIR"
         fi
-        echo "PROJECT_DIR=$PROJ_DIR" >> $GITHUB_ENV
-        echo "Found project in: $PROJ_DIR"
 
-    - name: Grant execute permission
+    # 🛠️ Se è Flutter, usa flutter-action
+    - name: Setup Flutter
+      if: env.FLUTTER == 'true'
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.x'
+
+    - name: Build APK (Flutter)
+      if: env.FLUTTER == 'true'
       run: |
-        chmod +x ${{ env.PROJECT_DIR }}/gradlew || chmod +x gradlew
+        cd android  # se il progetto Flutter ha android/ con build.gradle
+        flutter build apk --debug
 
-    - name: Build APK
+    # 🛠️ Se è Gradle, costruisci
+    - name: Grant execute permission
+      if: env.PROJECT_DIR != ''
+      run: |
+        chmod +x ${{ env.PROJECT_DIR }}/gradlew
+
+    - name: Build APK (Gradle)
+      if: env.PROJECT_DIR != ''
       run: |
         cd ${{ env.PROJECT_DIR }}
         ./gradlew assembleDebug
 
+    # 📦 Upload APK (cerca in tutte le possibili posizioni)
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: flux-launcher-apk
         path: |
+          app/build/outputs/apk/debug/*.apk
+          android/app/build/outputs/apk/debug/*.apk
           ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           **/build/outputs/apk/debug/*.apk
+          build/app/outputs/flutter-apk/*.apk
