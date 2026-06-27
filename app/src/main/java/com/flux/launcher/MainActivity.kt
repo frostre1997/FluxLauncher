@@ -11,15 +11,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Inizializziamo il nostro "cervello" che cerca le app
         val appProvider = AppProvider(this)
         appProvider.loadApps()
         
         setContent {
             FluxLauncherTheme {
-                // Qui richiamiamo la griglia che abbiamo creato in AppGrid.kt
                 AppGrid(apps = appProvider.installedApps)
             }
         }
     }
 }
+
